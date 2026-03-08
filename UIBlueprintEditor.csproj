@@ -32,20 +32,25 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
+	  <PackageReference Include="SharpDX.DXGI" Version="4.2.0" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Reference Include="FrostyControls">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\FrostyControls.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\FrostyControls.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostyCore">
-			<HintPath>D:\Documents\gw2 stuff\FrostyEditor\FrostyCore.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\FrostyCore.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostyHash">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\FrostyHash.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\FrostyHash.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostySdk">
-			<HintPath>D:\Documents\gw2 stuff\FrostyEditor\FrostySdk.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\FrostySdk.dll</HintPath>
 		</Reference>
 		<Reference Include="LocalizedStringPlugin">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\Plugins\LocalizedStringPlugin.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\Plugins\LocalizedStringPlugin.dll</HintPath>
 		</Reference>
 		<Reference Include="Microsoft.CSharp" />
 		<Reference Include="SharpDX.Direct3D11">
@@ -55,7 +60,7 @@
 		  <HintPath>..\..\gw2 stuff\FrostyEditor\ThirdParty\SharpDX.DXGI.dll</HintPath>
 		</Reference>
 		<Reference Include="TexturePlugin">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\Plugins\TexturePlugin.dll</HintPath>
+		  <HintPath>..\..\..\Modding\Frosty 1.0.6.3\FE\Plugins\TexturePlugin.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
