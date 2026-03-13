@@ -102,6 +102,18 @@ namespace UIBlueprintEditor.Editor
 
         private Action<object> refreshPropertyGrid;
 
+        static float VX(dynamic v)
+        {
+            try { return v.X; }
+            catch { return v.x; }
+        }
+
+        static void SX(dynamic v, float value)
+        {
+            try { v.X = value; }
+            catch { v.x = value; }
+        }
+
         public UIEditor(ILogger inLogger) : base(inLogger)
         {
             // App.Logger.Log(App.SelectedAsset.Type.ToString());
@@ -256,16 +268,16 @@ namespace UIBlueprintEditor.Editor
                     // the ui will only render if the Visible property of the layer is true
                     if (layer.Internal.Visible == true || ShowAllUI)
                     {
-                        double offsetX = (double)uiComponent.Internal.Offset.X;
-                        double offsetY = (double)uiComponent.Internal.Offset.Y;
+                        double offsetX = (double)VX(uiComponent.Internal.Offset);
+                        double offsetY = (double)VX(uiComponent.Internal.Offset);
 
-                        double anchorX = (double)uiComponent.Internal.Anchor.X;
-                        double anchorY = (double)uiComponent.Internal.Anchor.Y;
+                        double anchorX = (double)VX(uiComponent.Internal.Anchor);
+                        double anchorY = (double)VX(uiComponent.Internal.Anchor);
 
-                        double width = (double)uiComponent.Internal.Size.X;
-                        double height = (double)uiComponent.Internal.Size.Y;
-                        double x = (double)uiComponent.Internal.Offset.X;
-                        double y = (double)uiComponent.Internal.Offset.Y;
+                        double width = (double)VX(uiComponent.Internal.Size);
+                        double height = (double)VX(uiComponent.Internal.Size);
+                        double x = (double)VX(uiComponent.Internal.Offset);
+                        double y = (double)VX(uiComponent.Internal.Offset);
 
                         if (debugging)
                         {
@@ -412,234 +424,248 @@ namespace UIBlueprintEditor.Editor
                         }
                         else if ((componentName == "FrostySdk.Ebx.UIElementTextFieldEntityData" || componentName == "FrostySdk.Ebx.PVZUIElementTextFieldEntityData") && createText == true)
                         {
-                            if (uiComponent.Internal.Visible == true || ShowAllUI)
+                            try
                             {
-                                var canvas = new Canvas
+                                if (uiComponent.Internal.Visible == true || ShowAllUI)
                                 {
-                                    Width = width,
-                                    Height = height,
-                                    Tag = uiComponent.Internal.__InstanceGuid,
-                                };
-
-                                // a border is used for setting a vertical text alignment later
-                                var border = new Border
-                                {
-                                    Width = width,
-                                    Height = height,
-                                };
-
-                                var tb = new TextBlock
-                                {
-                                };
-
-                                string sid = uiComponent.Internal.Text.Sid;
-                                string fieldText = uiComponent.Internal.FieldText;
-
-                                // some text fields use FieldText
-                                string outcome = sid == "" ? fieldText : sid;
-
-                                // font style
-                                var fontGuid = ((PointerRef)uiComponent.Internal.FontStyle).External.FileGuid;
-                                var fontEbx = App.AssetManager.GetEbxEntry(fontGuid);
-
-                                EbxAsset fontAsset = App.AssetManager.GetEbx(fontEbx);
-                                dynamic rootObjectFont = fontAsset.RootObject;
-
-                                if (outcome != "")
-                                {
-                                    // if its an id it will use the string of the id
-                                    if (outcome.StartsWith("ID_"))
+                                    var canvas = new Canvas
                                     {
-                                        tb.Text = LocalizedStringDatabase.Current.GetString(outcome);
+                                        Width = width,
+                                        Height = height,
+                                        Tag = uiComponent.Internal.__InstanceGuid,
+                                    };
+
+                                    // a border is used for setting a vertical text alignment later
+                                    var border = new Border
+                                    {
+                                        Width = width,
+                                        Height = height,
+                                    };
+
+                                    var tb = new TextBlock
+                                    {
+                                    };
+
+                                    string sid = uiComponent.Internal.Text.Sid;
+                                    string fieldText = uiComponent.Internal.FieldText;
+
+                                    // some text fields use FieldText
+                                    string outcome = sid == "" ? fieldText : sid;
+
+                                    // font style
+                                    var fontGuid = ((PointerRef)uiComponent.Internal.FontStyle).External.FileGuid;
+                                    var fontEbx = App.AssetManager.GetEbxEntry(fontGuid);
+
+                                    EbxAsset fontAsset = App.AssetManager.GetEbx(fontEbx);
+                                    dynamic rootObjectFont = fontAsset.RootObject;
+
+                                    if (outcome != "")
+                                    {
+                                        // if its an id it will use the string of the id
+                                        if (outcome.StartsWith("ID_"))
+                                        {
+                                            tb.Text = LocalizedStringDatabase.Current.GetString(outcome);
+                                        }
+                                        else
+                                        {
+                                            tb.Text = outcome;
+                                        }
+                                    }
+                                    // if theres no text then it will just use InstanceName as the text
+                                    else
+                                    {
+                                        tb.Text = uiComponent.Internal.InstanceName;
+                                    }
+
+                                    // basic settings
+                                    tb.Opacity = opacity;
+
+                                    float leftPadding = uiComponent.Internal.AutoAdjustLeftPadding;
+                                    float rightPadding = uiComponent.Internal.AutoAdjustRightPadding;
+
+                                    //tb.Padding = new Thickness(leftPadding, 0, rightPadding, 0);
+
+                                    if (uiComponent.Internal.Password)
+                                    {
+                                        tb.Text = new string('*', tb.Text.Length);
+                                    }
+                                    if (uiComponent.Internal.Text.Wordwrap)
+                                    {
+                                        tb.TextWrapping = TextWrapping.Wrap;
+                                    }
+
+                                    // setting the actual font
+                                    var fontEbxPath = rootObjectFont.Hd.Internal.FontLookup[0].FontAssetPath;
+
+                                    var fontEbxTTF = App.AssetManager.GetEbx(fontEbxPath);
+                                    ulong ttfRes = fontEbxTTF.RootObject.FontResource;
+
+                                    ResAssetEntry ttfResEntry = App.AssetManager.GetResEntry(ttfRes);
+
+                                    using (Stream ttfStream = App.AssetManager.GetRes(ttfResEntry))
+                                    {
+                                        string fontName = "./#" + fontEbxTTF.RootObject.FontFamilyName;
+
+                                        // 'HouseofTerror' font has a space for some reason
+                                        if (fontName == "./#MonsterFonts-HouseofTerror")
+                                        {
+                                            fontName = "./#MonsterFonts HouseofTerror";
+                                        }
+
+                                        string tempFile = Path.Combine(Path.GetTempPath(),
+                                            string.Format("{0:X16}.ttf", fontEbxTTF.RootObject.FontResource));
+
+                                        if (!File.Exists(tempFile))
+                                        {
+                                            using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.Read))
+                                            {
+                                                ttfStream.CopyTo(fs);
+                                            }
+                                        }
+
+                                        tb.FontFamily = new FontFamily(new Uri(tempFile, UriKind.Absolute), fontName);
+                                    }
+
+                                    tb.FontSize = (double)rootObjectFont.Hd.Internal.PointSize;
+
+                                    // sets the alignment of the text
+                                    switch (uiComponent.Internal.Text.VerticalAlignment.ToString())
+                                    {
+                                        case "UIElementAlignment_Top":
+                                            tb.VerticalAlignment = VerticalAlignment.Top;
+                                            break;
+                                        case "UIElementAlignment_Center":
+                                            tb.VerticalAlignment = VerticalAlignment.Center;
+                                            break;
+                                        case "UIElementAlignment_Bottom":
+                                            tb.VerticalAlignment = VerticalAlignment.Bottom;
+                                            break;
+                                        default:
+                                            tb.VerticalAlignment = VerticalAlignment.Center;
+                                            break;
+                                    }
+
+                                    // they spelt horizontal wrong lol
+                                    switch (uiComponent.Internal.Text.HorizonalAlignment.ToString())
+                                    {
+                                        case "UIElementAlignment_Left":
+                                            tb.TextAlignment = TextAlignment.Left;
+                                            break;
+                                        case "UIElementAlignment_Center":
+                                            tb.TextAlignment = TextAlignment.Center;
+                                            break;
+                                        case "UIElementAlignment_Right":
+                                            tb.TextAlignment = TextAlignment.Right;
+                                            break;
+                                        default:
+                                            tb.TextAlignment = TextAlignment.Center;
+                                            break;
+                                    }
+
+                                    if (debugging)
+                                    {
+                                        App.Logger.Log(uiComponent.Internal.Text.HorizonalAlignment.ToString());
+                                        App.Logger.Log(uiComponent.Internal.Text.VerticalAlignment.ToString());
+
+                                        App.Logger.Log(tb.HorizontalAlignment.ToString());
+                                        App.Logger.Log(tb.VerticalAlignment.ToString());
+                                    }
+
+                                    RotateElement(uiComponent, canvas);
+
+                                    // font effect
+
+                                    var fontEffectGuid = ((PointerRef)uiComponent.Internal.FontEffect).External.FileGuid;
+                                    var fontEffectEbx = App.AssetManager.GetEbxEntry(fontEffectGuid);
+
+                                    if (fontEffectEbx != null && createFontEffects)
+                                    {
+                                        ApplyFontEffect(tb, border, canvas, fontEffectEbx);
+                                    }
+
+                                    // sets the position
+                                    Canvas.SetLeft(canvas, finalX);
+                                    Canvas.SetTop(canvas, finalY);
+
+                                    if (isWidget)
+                                    {
+                                        widgetCanvas.Children.Add(canvas);
+                                        canvas.Children.Add(border);
+                                        border.Child = tb;
                                     }
                                     else
                                     {
-                                        tb.Text = outcome;
+                                        _uiCanvas.Children.Add(canvas);
+                                        canvas.Children.Add(border);
+                                        border.Child = tb;
+
+                                        ControlUI(canvas);
                                     }
                                 }
-                                // if theres no text then it will just use InstanceName as the text
-                                else
-                                {
-                                    tb.Text = uiComponent.Internal.InstanceName;
-                                }
-
-                                // basic settings
-                                tb.Opacity = opacity;
-
-                                float leftPadding = uiComponent.Internal.AutoAdjustLeftPadding;
-                                float rightPadding = uiComponent.Internal.AutoAdjustRightPadding;
-
-                                //tb.Padding = new Thickness(leftPadding, 0, rightPadding, 0);
-
-                                if (uiComponent.Internal.Password)
-                                {
-                                    tb.Text = new string('*', tb.Text.Length);
-                                }
-                                if (uiComponent.Internal.Text.Wordwrap)
-                                {
-                                    tb.TextWrapping = TextWrapping.Wrap;
-                                }
-
-                                // setting the actual font
-                                var fontEbxPath = rootObjectFont.Hd.Internal.FontLookup[0].FontAssetPath;
-
-                                var fontEbxTTF = App.AssetManager.GetEbx(fontEbxPath);
-                                ulong ttfRes = fontEbxTTF.RootObject.FontResource;
-
-                                ResAssetEntry ttfResEntry = App.AssetManager.GetResEntry(ttfRes);
-
-                                using (Stream ttfStream = App.AssetManager.GetRes(ttfResEntry))
-                                {
-                                    string fontName = "./#" + fontEbxTTF.RootObject.FontFamilyName;
-
-                                    // 'HouseofTerror' font has a space for some reason
-                                    if (fontName == "./#MonsterFonts-HouseofTerror")
-                                    {
-                                        fontName = "./#MonsterFonts HouseofTerror";
-                                    }
-
-                                    string tempFile = Path.Combine(Path.GetTempPath(),
-                                        string.Format("{0:X16}.ttf", fontEbxTTF.RootObject.FontResource));
-
-                                    if (!File.Exists(tempFile))
-                                    {
-                                        using (var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.Read))
-                                        {
-                                            ttfStream.CopyTo(fs);
-                                        }
-                                    }
-
-                                    tb.FontFamily = new FontFamily(new Uri(tempFile, UriKind.Absolute), fontName);
-                                }
-
-                                tb.FontSize = (double)rootObjectFont.Hd.Internal.PointSize;
-
-                                // sets the alignment of the text
-                                switch (uiComponent.Internal.Text.VerticalAlignment.ToString())
-                                {
-                                    case "UIElementAlignment_Top":
-                                        tb.VerticalAlignment = VerticalAlignment.Top;
-                                        break;
-                                    case "UIElementAlignment_Center":
-                                        tb.VerticalAlignment = VerticalAlignment.Center;
-                                        break;
-                                    case "UIElementAlignment_Bottom":
-                                        tb.VerticalAlignment = VerticalAlignment.Bottom;
-                                        break;
-                                    default:
-                                        tb.VerticalAlignment = VerticalAlignment.Center;
-                                        break;
-                                }
-
-                                // they spelt horizontal wrong lol
-                                switch (uiComponent.Internal.Text.HorizonalAlignment.ToString())
-                                {
-                                    case "UIElementAlignment_Left":
-                                        tb.TextAlignment = TextAlignment.Left;
-                                        break;
-                                    case "UIElementAlignment_Center":
-                                        tb.TextAlignment = TextAlignment.Center;
-                                        break;
-                                    case "UIElementAlignment_Right":
-                                        tb.TextAlignment = TextAlignment.Right;
-                                        break;
-                                    default:
-                                        tb.TextAlignment = TextAlignment.Center;
-                                        break;
-                                }
-
-                                if (debugging)
-                                {
-                                    App.Logger.Log(uiComponent.Internal.Text.HorizonalAlignment.ToString());
-                                    App.Logger.Log(uiComponent.Internal.Text.VerticalAlignment.ToString());
-
-                                    App.Logger.Log(tb.HorizontalAlignment.ToString());
-                                    App.Logger.Log(tb.VerticalAlignment.ToString());
-                                }
-
-                                RotateElement(uiComponent, canvas);
-
-                                // font effect
-
-                                var fontEffectGuid = ((PointerRef)uiComponent.Internal.FontEffect).External.FileGuid;
-                                var fontEffectEbx = App.AssetManager.GetEbxEntry(fontEffectGuid);
-
-                                if (fontEffectEbx != null && createFontEffects)
-                                {
-                                    ApplyFontEffect(tb, border, canvas, fontEffectEbx);
-                                }
-
-                                // sets the position
-                                Canvas.SetLeft(canvas, finalX);
-                                Canvas.SetTop(canvas, finalY);
-
-                                if (isWidget)
-                                {
-                                    widgetCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(border);
-                                    border.Child = tb;
-                                }
-                                else
-                                {
-                                    _uiCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(border);
-                                    border.Child = tb;
-
-                                    ControlUI(canvas);
-                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                App.Logger.LogError($"An error occurred while rendering the text field '{uiComponent.Internal.InstanceName}': {ex}");
                             }
                         }
                         else if (componentName == "FrostySdk.Ebx.UIElementFillEntityData" || componentName == "FrostySdk.Ebx.PVZUIElementFillEntityData")
                         {
-                            if (uiComponent.Internal.Visible == true || ShowAllUI)
+                            try
                             {
-                                var canvas = new Canvas
+                                if (uiComponent.Internal.Visible == true || ShowAllUI)
                                 {
-                                    Width = width,
-                                    Height = height,
-                                    Tag = uiComponent.Internal.__InstanceGuid,
-                                };
+                                    var canvas = new Canvas
+                                    {
+                                        Width = width,
+                                        Height = height,
+                                        Tag = uiComponent.Internal.__InstanceGuid,
+                                    };
 
-                                var rect = new System.Windows.Shapes.Rectangle
-                                {
-                                    Width = width,
-                                    Height = height,
-                                };
+                                    var rect = new System.Windows.Shapes.Rectangle
+                                    {
+                                        Width = width,
+                                        Height = height,
+                                    };
 
-                                // style
-                                var fillGuid = ((PointerRef)uiComponent.Internal.Style).External.FileGuid;
-                                var fillEbx = App.AssetManager.GetEbxEntry(fillGuid);
+                                    // style
+                                    var fillGuid = ((PointerRef)uiComponent.Internal.Style).External.FileGuid;
+                                    var fillEbx = App.AssetManager.GetEbxEntry(fillGuid);
 
-                                EbxAsset fillAsset = App.AssetManager.GetEbx(fillEbx);
-                                dynamic rootObjectFill = fillAsset.RootObject;
+                                    EbxAsset fillAsset = App.AssetManager.GetEbx(fillEbx);
+                                    dynamic rootObjectFill = fillAsset.RootObject;
 
-                                var alpha = (float)rootObjectFill.BackgroundColor.Alpha;
+                                    var alpha = (float)rootObjectFill.BackgroundColor.Alpha;
 
-                                var colorR = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.x * 255);
-                                var colorG = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.y * 255);
-                                var colorB = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.z * 255);
+                                    var colorR = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.x * 255);
+                                    var colorG = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.y * 255);
+                                    var colorB = (byte)Math.Round(rootObjectFill.BackgroundColor.Rgb.z * 255);
 
-                                rect.Fill = new SolidColorBrush(Color.FromRgb(colorR, colorG, colorB));
-                                rect.Opacity = alpha;
+                                    rect.Fill = new SolidColorBrush(Color.FromRgb(colorR, colorG, colorB));
+                                    rect.Opacity = alpha;
 
-                                RotateElement(uiComponent, canvas);
+                                    RotateElement(uiComponent, canvas);
 
-                                // sets the position
-                                Canvas.SetLeft(canvas, finalX);
-                                Canvas.SetTop(canvas, finalY);
+                                    // sets the position
+                                    Canvas.SetLeft(canvas, finalX);
+                                    Canvas.SetTop(canvas, finalY);
 
-                                if (isWidget)
-                                {
-                                    widgetCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(rect);
+                                    if (isWidget)
+                                    {
+                                        widgetCanvas.Children.Add(canvas);
+                                        canvas.Children.Add(rect);
+                                    }
+                                    else
+                                    {
+                                        _uiCanvas.Children.Add(canvas);
+                                        canvas.Children.Add(rect);
+
+                                        ControlUI(canvas);
+                                    }
                                 }
-                                else
-                                {
-                                    _uiCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(rect);
-
-                                    ControlUI(canvas);
-                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                App.Logger.LogError($"An error occurred while rendering the fill '{uiComponent.Internal.InstanceName}': {ex}");
                             }
                         }
                         else if (componentName == "FrostySdk.Ebx.UIElementButtonEntityData")
@@ -661,103 +687,112 @@ namespace UIBlueprintEditor.Editor
                             dynamic rootObjectWidget = widgetAsset.RootObject;
 
                             var widgetSize = rootObjectWidget.Object.Internal.Size;
-
-                            if (!uiComponent.Internal.UseElementSize)
+                            try
                             {
-                                canvasWidget.Width = widgetSize.X;
-                                canvasWidget.Height = widgetSize.Y;
+
+                                if (!uiComponent.Internal.UseElementSize)
+                                {
+                                    canvasWidget.Width = widgetSize.X;
+                                    canvasWidget.Height = widgetSize.Y;
+                                }
+                                else
+                                {
+                                    canvasWidget.Width = width;
+                                    canvasWidget.Height = height;
+                                }
+
+                                double widgetFinalX = anchorX * (mainSizeX - widgetSize.X) + x;
+                                double widgetFinalY = anchorY * (mainSizeY - widgetSize.Y) + y;
+
+                                // these colors in widget references are supposed to control the color channel
+                                // but i dont think there is an easy way to do that with wpf and i dont wanna
+                                // spend hours just to get widget references to have colors lol
+
+                                //byte colorX = (byte)Math.Round(uiComponent.Internal.Color.x * 255);
+                                //byte colorY = (byte)Math.Round(uiComponent.Internal.Color.y * 255);
+                                //byte colorZ = (byte)Math.Round(uiComponent.Internal.Color.z * 255);
+
+                                canvasWidget.Opacity = opacity;
+
+                                RotateElement(uiComponent, canvasWidget);
+
+                                Canvas.SetLeft(canvasWidget, widgetFinalX);
+                                Canvas.SetTop(canvasWidget, widgetFinalY);
+
+                                if (debugging)
+                                {
+                                    App.Logger.Log("widget");
+                                }
+
+                                if (isWidget)
+                                {
+                                    widgetCanvas.Children.Add(canvasWidget);
+                                }
+                                else
+                                {
+                                    _uiCanvas.Children.Add(canvasWidget);
+
+                                    ControlUI(canvasWidget);
+                                }
+
+                                // repeats everything with the EBX of the widget to render everything that is inside the widget
+                                LoadUI(widgetEbx, true, canvasWidget);
                             }
-                            else
+
+                            catch (Exception ex)
+
                             {
-                                canvasWidget.Width = width;
-                                canvasWidget.Height = height;
+                                App.Logger.LogError($"An error occurred while rendering the widget '{uiComponent.Internal.InstanceName}': {ex}");
                             }
+                    }
+                    else
+                    {
+                        // creates a basic rectangle if its an unknown component
+                        // if you're using this for another game this is what most ui elements will render as
 
-                            double widgetFinalX = anchorX * (mainSizeX - widgetSize.X) + x;
-                            double widgetFinalY = anchorY * (mainSizeY - widgetSize.Y) + y;
+                        App.Logger.Log("Unrecognized UI component " + componentName);
 
-                            // these colors in widget references are supposed to control the color channel
-                            // but i dont think there is an easy way to do that with wpf and i dont wanna
-                            // spend hours just to get widget references to have colors lol
+                        var canvas = new Canvas
+                        {
+                            Width = width,
+                            Height = height,
+                            Tag = uiComponent.Internal.__InstanceGuid,
+                        };
 
-                            //byte colorX = (byte)Math.Round(uiComponent.Internal.Color.x * 255);
-                            //byte colorY = (byte)Math.Round(uiComponent.Internal.Color.y * 255);
-                            //byte colorZ = (byte)Math.Round(uiComponent.Internal.Color.z * 255);
+                        var rect = new System.Windows.Shapes.Rectangle
+                        {
+                            Width = width,
+                            Height = height,
+                            Fill = Brushes.Orange,
+                            Opacity = 0.05,
+                        };
 
-                            canvasWidget.Opacity = opacity;
+                        var tb = new TextBlock
+                        {
+                            Text = uiComponent.Internal.InstanceName,
+                            FontSize = 24,
+                            Opacity = 0.2,
+                        };
 
-                            RotateElement(uiComponent, canvasWidget);
+                        // sets the position
+                        Canvas.SetLeft(canvas, finalX);
+                        Canvas.SetTop(canvas, finalY);
 
-                            Canvas.SetLeft(canvasWidget, widgetFinalX);
-                            Canvas.SetTop(canvasWidget, widgetFinalY);
-
-                            if (debugging)
-                            {
-                                App.Logger.Log("widget");
-                            }
-
-                            if (isWidget)
-                            {
-                                widgetCanvas.Children.Add(canvasWidget);
-                            }
-                            else
-                            {
-                                _uiCanvas.Children.Add(canvasWidget);
-
-                                ControlUI(canvasWidget);
-                            }
-
-                            // repeats everything with the EBX of the widget to render everything that is inside the widget
-                            LoadUI(widgetEbx, true, canvasWidget);
+                        if (isWidget)
+                        {
+                            widgetCanvas.Children.Add(canvas);
+                            canvas.Children.Add(rect);
+                            canvas.Children.Add(tb);
                         }
                         else
                         {
-                            // creates a basic rectangle if its an unknown component
-                            // if you're using this for another game this is what most ui elements will render as
+                            _uiCanvas.Children.Add(canvas);
+                            canvas.Children.Add(rect);
+                            canvas.Children.Add(tb);
 
-                            App.Logger.Log("Unrecognized UI component");
-
-                            var canvas = new Canvas
-                            {
-                                Width = width,
-                                Height = height,
-                                Tag = uiComponent.Internal.__InstanceGuid,
-                            };
-
-                            var rect = new System.Windows.Shapes.Rectangle
-                            {
-                                Width = width,
-                                Height = height,
-                                Fill = Brushes.Orange,
-                                Opacity = 0.05,
-                            };
-
-                            var tb = new TextBlock
-                            {
-                                Text = uiComponent.Internal.InstanceName,
-                                FontSize = 24,
-                                Opacity = 0.2,
-                            };
-
-                            // sets the position
-                            Canvas.SetLeft(canvas, finalX);
-                            Canvas.SetTop(canvas, finalY);
-
-                            if (isWidget)
-                            {
-                                widgetCanvas.Children.Add(canvas);
-                                canvas.Children.Add(rect);
-                                canvas.Children.Add(tb);
-                            }
-                            else
-                            {
-                                _uiCanvas.Children.Add(canvas);
-                                canvas.Children.Add(rect);
-                                canvas.Children.Add(tb);
-
-                                ControlUI(canvas);
-                            }
+                            ControlUI(canvas);
                         }
+                    }
                     }
                 }
 
