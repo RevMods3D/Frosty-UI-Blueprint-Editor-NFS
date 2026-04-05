@@ -1,6 +1,7 @@
 ﻿using Frosty.Core;
 using FrostySdk.Ebx;
 using FrostySdk.IO;
+using FrostySdk.Managers;
 using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
@@ -16,7 +17,6 @@ namespace UIBlueprintEditor.Editor
     {
         static bool debugging = UIEditor.debugging;
 
-        static Dictionary<dynamic, dynamic> mappingIdToMapping = UIEditor.mappingIdToMapping;
         static Dictionary<dynamic, dynamic> mappingMinValue = UIEditor.mappingMinValue;
         static Dictionary<dynamic, dynamic> mappingMaxValue = UIEditor.mappingMaxValue;
         static Dictionary<dynamic, BitmapImage> mappingTexture = UIEditor.mappingTexture;
@@ -43,38 +43,39 @@ namespace UIBlueprintEditor.Editor
                 // loops through each output in the texture mapping asset
                 foreach (dynamic outputEntry in rootObjectTextureMap.Output)
                 {
-                    // if the texture isn't used in the ui we're loading we will skip creating the texture
-                    // there can also be more than one texture id of the same name
+                    string entryId = outputEntry.Id.ToString();
 
-                    if (outputEntry.Id == textureId && !mappingIdToMapping.ContainsKey(outputEntry.Id))
+                    // skip if this isn't the texture we need, or if we already loaded it
+                    if (entryId != textureId || mappingTexture.ContainsKey(entryId))
+                        continue;
+
+                    var uvRect = outputEntry.UvRect;
+
+                    // store min (x, y) and max (z, w) as separate anonymous-style objects
+                    mappingMinValue.Add(entryId, new { x = (double)uvRect.x, y = (double)uvRect.y });
+                    mappingMaxValue.Add(entryId, new { x = (double)uvRect.z, y = (double)uvRect.w });
+
+                    // TextureRef is a raw ulong res hash as a hex string
+                    ulong textureResHash = Convert.ToUInt64(outputEntry.TextureRef.ToString(), 16);
+
+                    ResAssetEntry resEntry = App.AssetManager.GetResEntry(textureResHash);
+
+                    if (resEntry == null)
                     {
-                        var min = outputEntry.Min;
-                        var max = outputEntry.Max;
-                        var textureRef = outputEntry.Texture;
-
-                        var textureGuid = ((PointerRef)textureRef).External.FileGuid;
-                        var textureEbx = App.AssetManager.GetEbxEntry(textureGuid);
-
-                        var textureAsset = App.AssetManager.GetEbx(textureEbx);
-                        dynamic rootObjectTexture = textureAsset.RootObject;
-                        ulong textureRes = rootObjectTexture.Resource;
-
-                        // texture section by NM, modified a little bit to write textures to memory
-
-                        Texture texture = App.AssetManager.GetResAs<Texture>(App.AssetManager.GetResEntry(textureRes));
-
-                        mappingIdToMapping.Add(outputEntry.Id, outputEntry);
-                        mappingMinValue.Add(outputEntry.Id, min);
-                        mappingMaxValue.Add(outputEntry.Id, max);
-
-                        TextureExporterToMemory.Export(texture);
-
-                        byte[] textureBytes = TextureExporterToMemory.textureBytes;
-
-                        BitmapImage bitmap = CreateBitmap(textureBytes);
-
-                        mappingTexture.Add(outputEntry.Id, bitmap);
+                        App.Logger.LogError($"Could not find res entry for TextureRef '{outputEntry.TextureRef}' (id: {entryId})");
+                        continue;
                     }
+
+                    Texture texture = App.AssetManager.GetResAs<Texture>(resEntry);
+
+                    TextureExporterToMemory.Export(texture);
+                    byte[] textureBytes = TextureExporterToMemory.textureBytes;
+
+                    BitmapImage bitmap = CreateBitmap(textureBytes);
+                    mappingTexture.Add(entryId, bitmap);
+
+                    if (debugging)
+                        App.Logger.Log("Loaded texture id: " + entryId);
                 }
             }
         }
