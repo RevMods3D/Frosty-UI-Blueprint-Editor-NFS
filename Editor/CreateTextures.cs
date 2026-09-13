@@ -80,6 +80,67 @@ namespace UIBlueprintEditor.Editor
             }
         }
 
+        public static void GetDirectTexture(PointerRef texturePointer, string cacheKey)
+        {
+            if (mappingTexture.ContainsKey(cacheKey))
+                return;
+
+            var textureGuid = texturePointer.External.FileGuid;
+            var textureEbxEntry = App.AssetManager.GetEbxEntry(textureGuid);
+
+            if (textureEbxEntry == null)
+            {
+                App.Logger.LogError($"Could not find EBX entry for direct texture pointer (guid: {textureGuid})");
+                return;
+            }
+
+            // TextureAsset EBX and its pixel-data res chunk share the same asset name/path
+            ResAssetEntry resEntry = App.AssetManager.GetResEntry(textureEbxEntry.Name);
+
+            if (resEntry == null)
+            {
+                App.Logger.LogError($"Could not find res entry for direct texture '{textureEbxEntry.Name}'");
+                return;
+            }
+
+            Texture texture = App.AssetManager.GetResAs<Texture>(resEntry);
+
+            TextureExporterToMemory.Export(texture);
+            byte[] textureBytes = TextureExporterToMemory.textureBytes;
+
+            BitmapImage bitmap = CreateBitmap(textureBytes);
+            mappingTexture.Add(cacheKey, bitmap);
+
+            mappingMinValue.Add(cacheKey, new { x = 0.0, y = 0.0 });
+            mappingMaxValue.Add(cacheKey, new { x = 1.0, y = 1.0 });
+
+            if (debugging)
+                App.Logger.Log("Loaded direct texture: " + cacheKey);
+        }
+
+        public static void GetTextureByResHash(string textureRefHex, string cacheKey)
+        {
+            if (mappingTexture.ContainsKey(cacheKey))
+                return;
+
+            ulong textureResHash = Convert.ToUInt64(textureRefHex, 16);
+            ResAssetEntry resEntry = App.AssetManager.GetResEntry(textureResHash);
+
+            if (resEntry == null)
+            {
+                App.Logger.LogError($"Could not find res entry for TextureRef '{textureRefHex}'");
+                return;
+            }
+
+            Texture texture = App.AssetManager.GetResAs<Texture>(resEntry);
+            TextureExporterToMemory.Export(texture);
+            BitmapImage bitmap = CreateBitmap(TextureExporterToMemory.textureBytes);
+            mappingTexture.Add(cacheKey, bitmap);
+
+            if (debugging)
+                App.Logger.Log("Loaded texture by res hash: " + cacheKey);
+        }
+
         // returns a bitmap image that is written to a MemoryStream
         public static BitmapImage CreateBitmap(byte[] textureBytes)
         {

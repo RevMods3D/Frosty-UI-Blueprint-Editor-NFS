@@ -27,6 +27,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
+using System.Windows.Shapes;
 using UIBlueprintEditor.Editor.Text;
 
 namespace UIBlueprintEditor.Editor
@@ -299,100 +300,103 @@ namespace UIBlueprintEditor.Editor
                     // Type: FrostySdk.Ebx.UIElementSlicedTextureEntityData
                     // TextureId is nested: uiComponent.Internal.Texture.Id
                     // ------------------------------------------------------------------
-                    if (componentName == "FrostySdk.Ebx.UIElementSlicedTextureEntityData" && createImages)
+                    if (componentName == "FrostySdk.Ebx.UIElementSlicedTextureEntityData" && createImages == true)
                     {
                         try
                         {
                             if (uiComponent.Internal.Visible == true || ShowAllUI)
                             {
-                                // NFS stores the texture id inside a UIAutoMappedTexture struct
                                 string textureMapId = uiComponent.Internal.Texture.Id.ToString();
-
                                 CreateTextures.GetTextures(rootObject, textureMapId);
 
-                                double actualWidth = width;
-                                double actualHeight = height;
+                                var texture = mappingTexture[textureMapId];
 
-                                width = width < 0 ? Math.Abs(width) : width;
-                                height = height < 0 ? Math.Abs(height) : height;
+                                // same atlas-crop math as the bitmap branch, gives this element's own bitmap region
+                                double minX = mappingMinValue[textureMapId].x * texture.PixelWidth;
+                                double minY = mappingMinValue[textureMapId].y * texture.PixelHeight;
+                                double maxX = mappingMaxValue[textureMapId].x * texture.PixelWidth;
+                                double maxY = mappingMaxValue[textureMapId].y * texture.PixelHeight;
+
+                                var ownRect = new Int32Rect((int)minX, (int)minY, (int)(maxX - minX), (int)(maxY - minY));
+                                App.Logger.Log($"minX={minX} minY={minY} maxX={maxX} maxY={maxY} texW={texture.PixelWidth} texH={texture.PixelHeight}");
+                                var ownBitmap = new CroppedBitmap(texture, ownRect);
+
+                                int sliceLeft = (int)(float)uiComponent.Internal.SliceLeft;
+                                int sliceTop = (int)(float)uiComponent.Internal.SliceTop;
+                                int sliceRight = (int)(float)uiComponent.Internal.SliceRight;
+                                int sliceBottom = (int)(float)uiComponent.Internal.SliceBottom;
+                                bool fillCenter = uiComponent.Internal.FillCenter;
 
                                 var canvas = new Canvas
                                 {
                                     Width = width,
                                     Height = height,
                                     Tag = uiComponent.Internal.__InstanceGuid,
+                                    Opacity = opacity,
                                 };
 
-                                var image = new Image
+                                var grid = new Grid { Width = width, Height = height };
+                                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(sliceLeft) });
+                                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(sliceRight) });
+                                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(sliceTop) });
+                                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(sliceBottom) });
+
+                                int ownW = ownBitmap.PixelWidth;
+                                int ownH = ownBitmap.PixelHeight;
+                                int[] colsSrc = { 0, sliceLeft, ownW - sliceRight, ownW };
+                                int[] rowsSrc = { 0, sliceTop, ownH - sliceBottom, ownH };
+
+                                for (int r = 0; r < 3; r++)
                                 {
-                                    Width = width,
-                                    Height = height,
-                                    Stretch = Stretch.Fill,
-                                };
+                                    for (int c = 0; c < 3; c++)
+                                    {
+                                        if (c == 1 && r == 1 && !fillCenter) continue;
 
-                                var texture = mappingTexture[textureMapId];
-                                image.Source = texture;
+                                        int pw = colsSrc[c + 1] - colsSrc[c];
+                                        int ph = rowsSrc[r + 1] - rowsSrc[r];
 
-                                // NFS uses UvRect (Vec4) instead of separate Min/Max
-                                // UvRect: x=left, y=top, z=right, w=bottom (0-1 range)
-                                var uvRect = mappingUvRect.ContainsKey(textureMapId)
-                                    ? mappingUvRect[textureMapId]
-                                    : null;
+                                        // a slice value of 0 means "no patch on this side" — skip it,
+                                        // don't clamp it up to a fake 1px sliver (that can read past the texture edge)
+                                        if (pw <= 0 || ph <= 0)
+                                            continue;
 
-                                double minX = 0, minY = 0, maxX = width, maxY = height;
+                                        var patch = new CroppedBitmap(ownBitmap, new Int32Rect(colsSrc[c], rowsSrc[r], pw, ph));
 
-                                if (uvRect != null)
-                                {
-                                    minX = (double)uvRect.x * width;
-                                    minY = (double)uvRect.y * height;
-                                    maxX = (double)uvRect.z * width;
-                                    maxY = (double)uvRect.w * height;
+                                        var patchImage = new Image { Source = patch, Stretch = Stretch.Fill };
+                                        RenderOptions.SetBitmapScalingMode(patchImage, BitmapScalingMode.NearestNeighbor);
+
+                                        Grid.SetColumn(patchImage, c);
+                                        Grid.SetRow(patchImage, r);
+                                        grid.Children.Add(patchImage);
+                                    }
                                 }
 
-                                Point min = new Point(minX, minY);
-                                Point max = new Point(maxX, maxY);
-
-                                image.Clip = new RectangleGeometry(new Rect(min, max));
-                                RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Fant);
-
-                                double croppedWidth = maxX - minX;
-                                double croppedHeight = maxY - minY;
-
-                                double scaleX = actualWidth / (croppedWidth > 0 ? croppedWidth : 1);
-                                double scaleY = actualHeight / (croppedHeight > 0 ? croppedHeight : 1);
-
-                                var transformGroupImage = new TransformGroup();
-                                transformGroupImage.Children.Add(new TranslateTransform(-minX, -minY));
-                                transformGroupImage.Children.Add(new ScaleTransform(scaleX, scaleY));
-                                image.RenderTransform = transformGroupImage;
-
-                                image.Opacity = opacity;
-
                                 RotateElement(uiComponent, canvas);
-
                                 Canvas.SetLeft(canvas, finalX);
                                 Canvas.SetTop(canvas, finalY);
 
                                 if (isWidget)
                                 {
                                     widgetCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(image);
+                                    canvas.Children.Add(grid);
                                 }
                                 else
                                 {
                                     _uiCanvas.Children.Add(canvas);
-                                    canvas.Children.Add(image);
+                                    canvas.Children.Add(grid);
                                     ControlUI(canvas);
                                 }
                             }
                         }
                         catch (KeyNotFoundException)
                         {
-                            App.Logger.LogError($"The texture for '{uiComponent.Internal.InstanceName}' wasn't found.");
+                            App.Logger.LogError($"The texture '{uiComponent.Internal.Texture.Id}' wasn't found in '{uiComponent.Internal.InstanceName}'");
                         }
                         catch (Exception ex)
                         {
-                            App.Logger.LogError($"Error rendering '{uiComponent.Internal.InstanceName}': {ex}");
+                            App.Logger.LogError($"An error occurred while rendering the sliced texture '{uiComponent.Internal.InstanceName}': {ex}");
                         }
                     }
 
@@ -405,10 +409,34 @@ namespace UIBlueprintEditor.Editor
                                 // the texture id for a static texture is stored inside the Texture struct
                                 // as an Id field, e.g. "Rimloader [37607F02]"
                                 string staticTextureId = uiComponent.Internal.Texture.Id.ToString();
+                                string textureKey;
 
-                                // gets all the textures needed — same call as bitmaps,
-                                // CreateTextures.GetTextures should handle this id the same way
-                                CreateTextures.GetTextures(rootObject, staticTextureId);
+                                double minX, minY, maxX, maxY;
+
+                                if (staticTextureId == "0")
+                                {
+                                    // no atlas entry — load directly via TextureRef, and use this element's
+                                    // own UvRect for cropping instead of atlas-provided min/max
+                                    string textureRefHex = uiComponent.Internal.Texture.TextureRef.ToString();
+                                    textureKey = "direct_" + textureRefHex;
+                                    CreateTextures.GetTextureByResHash(textureRefHex, textureKey);
+
+                                    var uvRectDirect = uiComponent.Internal.UvRect;
+                                    minX = (double)uvRectDirect.x * width;
+                                    minY = (double)uvRectDirect.y * height;
+                                    maxX = (double)uvRectDirect.z * width;
+                                    maxY = (double)uvRectDirect.w * height;
+                                }
+                                else
+                                {
+                                    textureKey = staticTextureId;
+                                    CreateTextures.GetTextures(rootObject, textureKey);
+
+                                    minX = mappingMinValue[textureKey].x * width;
+                                    minY = mappingMinValue[textureKey].y * height;
+                                    maxX = mappingMaxValue[textureKey].x * width;
+                                    maxY = mappingMaxValue[textureKey].y * height;
+                                }
 
                                 double actualWidth = width;
                                 double actualHeight = height;
@@ -430,16 +458,11 @@ namespace UIBlueprintEditor.Editor
                                     Stretch = Stretch.Fill,
                                 };
 
-                                var texture = mappingTexture[staticTextureId];
+                                var texture = mappingTexture[textureKey];
                                 image.Source = texture;
 
                                 var uvRectFull = uiComponent.Internal.UvRect;
                                 Vector4 uvRect = new Vector4(uvRectFull.x, uvRectFull.y, uvRectFull.z, uvRectFull.w);
-
-                                double minX = mappingMinValue[staticTextureId].x * width;
-                                double minY = mappingMinValue[staticTextureId].y * height;
-                                double maxX = mappingMaxValue[staticTextureId].x * width;
-                                double maxY = mappingMaxValue[staticTextureId].y * height;
 
                                 image.Clip = new RectangleGeometry(new Rect(new Point(minX, minY), new Point(maxX, maxY)));
                                 RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Fant);
@@ -582,6 +605,286 @@ namespace UIBlueprintEditor.Editor
                             }
                         }
                     }
+                    else if (componentName == "FrostySdk.Ebx.UIElementShaderEntityData" && createImages)
+                    {
+                        try
+                        {
+                            if (uiComponent.Internal.Visible == true || ShowAllUI)
+                            {
+                                // approximation: real shader programs can blend both textures together;
+                                // we can't run the actual shader, so just show whichever slot is enabled
+                                dynamic textureField = null;
+                                if ((bool)uiComponent.Internal.UseStaticTexture2)
+                                    textureField = uiComponent.Internal.StaticTexture2;
+                                else if ((bool)uiComponent.Internal.UseStaticTexture1)
+                                    textureField = uiComponent.Internal.StaticTexture1;
+
+                                if (textureField == null)
+                                {
+                                    if (debugging)
+                                        App.Logger.Log($"Shader element '{uiComponent.Internal.InstanceName}' has no static texture enabled");
+                                }
+                                else
+                                {
+                                    string shaderTextureId = textureField.Id.ToString();
+                                    CreateTextures.GetTextures(rootObject, shaderTextureId);
+
+                                    var texture = mappingTexture[shaderTextureId];
+
+                                    var image = new Image { Width = width, Height = height, Stretch = Stretch.Fill, Source = texture, Opacity = opacity };
+
+                                    double minX = mappingMinValue[shaderTextureId].x * width;
+                                    double minY = mappingMinValue[shaderTextureId].y * height;
+                                    double maxX = mappingMaxValue[shaderTextureId].x * width;
+                                    double maxY = mappingMaxValue[shaderTextureId].y * height;
+
+                                    image.Clip = new RectangleGeometry(new Rect(new Point(minX, minY), new Point(maxX, maxY)));
+                                    RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.Fant);
+
+                                    var transformGroupImage = new TransformGroup();
+                                    transformGroupImage.Children.Add(new TranslateTransform(-minX, -minY));
+                                    transformGroupImage.Children.Add(new ScaleTransform(width / (maxX - minX), height / (maxY - minY)));
+                                    image.RenderTransform = transformGroupImage;
+
+                                    var canvas = new Canvas { Width = width, Height = height, Tag = uiComponent.Internal.__InstanceGuid };
+                                    RotateElement(uiComponent, canvas);
+                                    Canvas.SetLeft(canvas, finalX);
+                                    Canvas.SetTop(canvas, finalY);
+                                    canvas.Children.Add(image);
+
+                                    if (isWidget) { widgetCanvas.Children.Add(canvas); }
+                                    else { _uiCanvas.Children.Add(canvas); ControlUI(canvas); }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"An error occurred while rendering the shader element '{uiComponent.Internal.InstanceName}': {ex}");
+                        }
+                    }
+
+                    else if (componentName == "FrostySdk.Ebx.UIMaskingContainerEntityData")
+                    {
+                        try
+                        {
+                            if (uiComponent.Internal.Visible == true || ShowAllUI)
+                            {
+                                var containerCanvas = new Canvas
+                                {
+                                    Width = width,
+                                    Height = height,
+                                    ClipToBounds = true,
+                                    Opacity = opacity,
+                                    Tag = uiComponent.Internal.__InstanceGuid,
+                                };
+
+                                var contentCanvas = new Canvas { Width = width, Height = height };
+
+                                foreach (var childComponent in uiComponent.Internal.Elements)
+                                {
+                                    string childComponentName = childComponent.Internal.ToString();
+
+                                    double childW = (double)childComponent.Internal.Size.x;
+                                    double childH = (double)childComponent.Internal.Size.y;
+                                    double childAnchorX = (double)childComponent.Internal.Anchor.X;
+                                    double childAnchorY = (double)childComponent.Internal.Anchor.Y;
+                                    double childOffX = (double)childComponent.Internal.Offset.X;
+                                    double childOffY = (double)childComponent.Internal.Offset.Y;
+
+                                    double childX = childAnchorX * (width - childW) + childOffX;
+                                    double childY = childAnchorY * (height - childH) + childOffY;
+
+                                    if (childComponentName == "FrostySdk.Ebx.UIElementFillEntityData")
+                                    {
+                                        var childColorVec = childComponent.Internal.Color;
+                                        var childColor = Color.FromScRgb(
+                                            (float)childComponent.Internal.Alpha,
+                                            (float)childColorVec.x, (float)childColorVec.y, (float)childColorVec.z);
+
+                                        var childRect = new System.Windows.Shapes.Rectangle
+                                        {
+                                            Width = childW,
+                                            Height = childH,
+                                            Fill = new SolidColorBrush(childColor),
+                                        };
+                                        Canvas.SetLeft(childRect, childX);
+                                        Canvas.SetTop(childRect, childY);
+                                        contentCanvas.Children.Add(childRect);
+                                    }
+                                    else if (childComponentName == "FrostySdk.Ebx.UIElementTextFieldEntityData")
+                                    {
+                                        string childText = childComponent.Internal.LocalizedString ?? childComponent.Internal.InstanceName;
+
+                                        var childTb = new TextBlock
+                                        {
+                                            Text = childText,
+                                            Width = childW,
+                                            Height = childH,
+                                            TextAlignment = TextAlignment.Center,
+                                            VerticalAlignment = VerticalAlignment.Center,
+                                            Foreground = Brushes.White,
+                                        };
+                                        Canvas.SetLeft(childTb, childX);
+                                        Canvas.SetTop(childTb, childY);
+                                        contentCanvas.Children.Add(childTb);
+                                    }
+                                    // extend with more childComponentName checks as needed
+                                }
+
+                                containerCanvas.Children.Add(contentCanvas);
+
+                                // Masks list is a pure alpha stencil, never drawn directly.
+                                if (uiComponent.Internal.Masks != null && uiComponent.Internal.Masks.Count > 0)
+                                {
+                                    var maskCanvas = new Canvas { Width = width, Height = height };
+
+                                    foreach (var maskComponent in uiComponent.Internal.Masks)
+                                    {
+                                        string maskComponentName = maskComponent.Internal.ToString();
+
+                                        double maskW = (double)maskComponent.Internal.Size.x;
+                                        double maskH = (double)maskComponent.Internal.Size.y;
+                                        double maskAnchorX = (double)maskComponent.Internal.Anchor.X;
+                                        double maskAnchorY = (double)maskComponent.Internal.Anchor.Y;
+                                        double maskOffX = (double)maskComponent.Internal.Offset.X;
+                                        double maskOffY = (double)maskComponent.Internal.Offset.Y;
+
+                                        double maskX = maskAnchorX * (width - maskW) + maskOffX;
+                                        double maskY = maskAnchorY * (height - maskH) + maskOffY;
+
+                                        if (maskComponentName == "FrostySdk.Ebx.UIElementFillEntityData")
+                                        {
+                                            var maskColorVec = maskComponent.Internal.Color;
+                                            var maskColor = Color.FromScRgb(
+                                                (float)maskComponent.Internal.Alpha,
+                                                (float)maskColorVec.x, (float)maskColorVec.y, (float)maskColorVec.z);
+
+                                            var maskRect = new System.Windows.Shapes.Rectangle
+                                            {
+                                                Width = maskW,
+                                                Height = maskH,
+                                                Fill = new SolidColorBrush(maskColor),
+                                            };
+                                            Canvas.SetLeft(maskRect, maskX);
+                                            Canvas.SetTop(maskRect, maskY);
+                                            maskCanvas.Children.Add(maskRect);
+                                        }
+                                        // extend with more maskComponentName checks as needed
+                                    }
+
+                                    maskCanvas.Measure(new Size(width, height));
+                                    maskCanvas.Arrange(new Rect(0, 0, width, height));
+                                    maskCanvas.UpdateLayout();
+
+                                    var maskBitmap = new RenderTargetBitmap(
+                                        Math.Max(1, (int)width), Math.Max(1, (int)height),
+                                        96, 96, PixelFormats.Pbgra32);
+                                    maskBitmap.Render(maskCanvas);
+
+                                    // MaskThreshold is a soft cutoff on the shader side; OpacityMask here is an approximation.
+                                    contentCanvas.OpacityMask = new ImageBrush(maskBitmap);
+                                }
+
+                                RotateElement(uiComponent, containerCanvas);
+                                Canvas.SetLeft(containerCanvas, finalX);
+                                Canvas.SetTop(containerCanvas, finalY);
+
+                                if (isWidget)
+                                {
+                                    widgetCanvas.Children.Add(containerCanvas);
+                                }
+                                else
+                                {
+                                    _uiCanvas.Children.Add(containerCanvas);
+                                    ControlUI(containerCanvas);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"An error occurred while rendering the masking container '{uiComponent.Internal.InstanceName}': {ex}");
+                        }
+                    }
+                    else if (componentName == "FrostySdk.Ebx.UIElementCircularMeterEntityData" && createImages)
+                    {
+                        try
+                        {
+                            if (uiComponent.Internal.Visible == true || ShowAllUI)
+                            {
+                                var texturePointer = (PointerRef)uiComponent.Internal.Texture;
+                                string cacheKey = texturePointer.External.FileGuid.ToString();
+                                CreateTextures.GetDirectTexture(texturePointer, cacheKey);
+
+                                var texture = mappingTexture[cacheKey];
+
+                                var canvas = new Canvas
+                                {
+                                    Width = width,
+                                    Height = height,
+                                    Tag = uiComponent.Internal.__InstanceGuid,
+                                    Opacity = opacity,
+                                };
+
+                                var image = new Image
+                                {
+                                    Width = width,
+                                    Height = height,
+                                    Stretch = Stretch.Fill,
+                                    Source = texture,
+                                };
+
+                                double centerX = width * (double)uiComponent.Internal.RelativeCenterOfCircle.x;
+                                double centerY = height * (double)uiComponent.Internal.RelativeCenterOfCircle.y;
+                                double radius = Math.Sqrt(width * width + height * height); // oversized so the wedge always reaches past the image edge
+
+                                double startAngle = (double)uiComponent.Internal.StartAngleRadians;
+                                double maxRotation = (double)uiComponent.Internal.MaxRotationRadians;
+                                double meterValue = Math.Max(0, Math.Min(1, (double)uiComponent.Internal.MeterValue));
+
+                                double sweep = maxRotation * meterValue;
+
+                                if (sweep > 0.0001)
+                                {
+                                    // MeterType_GrowClockwise only — other meter types aren't handled yet
+                                    double endAngle = startAngle + sweep;
+
+                                    var center = new Point(centerX, centerY);
+                                    var startPoint = new Point(centerX + radius * Math.Cos(startAngle), centerY + radius * Math.Sin(startAngle));
+                                    var endPoint = new Point(centerX + radius * Math.Cos(endAngle), centerY + radius * Math.Sin(endAngle));
+
+                                    bool isLargeArc = sweep > Math.PI;
+
+                                    var figure = new PathFigure { StartPoint = center, IsClosed = true };
+                                    figure.Segments.Add(new LineSegment(startPoint, true));
+                                    figure.Segments.Add(new ArcSegment(endPoint, new Size(radius, radius), 0, isLargeArc, SweepDirection.Clockwise, true));
+
+                                    var wedgeGeometry = new PathGeometry();
+                                    wedgeGeometry.Figures.Add(figure);
+
+                                    image.Clip = wedgeGeometry;
+                                }
+                                else if (debugging)
+                                {
+                                    // MeterValue is usually driven at runtime via PropertyConnection, so the
+                                    // static blueprint default (often 0) just means "empty at rest" — not a bug
+                                    App.Logger.Log($"Circular meter '{uiComponent.Internal.InstanceName}' has MeterValue 0 — showing empty (runtime-driven)");
+                                }
+
+                                RotateElement(uiComponent, canvas);
+                                Canvas.SetLeft(canvas, finalX);
+                                Canvas.SetTop(canvas, finalY);
+                                canvas.Children.Add(image);
+
+                                if (isWidget) { widgetCanvas.Children.Add(canvas); }
+                                else { _uiCanvas.Children.Add(canvas); ControlUI(canvas); }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.LogError($"An error occurred while rendering the circular meter '{uiComponent.Internal.InstanceName}': {ex}");
+                        }
+                    }
+
                     // ------------------------------------------------------------------
                     // Text fields — wrapped in try/catch because NFS text field
                     // properties (Text.Sid, Text.Wordwrap, FontStyle, etc.) may differ
@@ -651,7 +954,7 @@ namespace UIBlueprintEditor.Editor
                                     using (Stream ttfStream = App.AssetManager.GetRes(ttfResEntry))
                                     {
                                         string fontName = "./#" + fontEbxTTF.RootObject.FontFamilyName;
-                                        string tempFile = Path.Combine(Path.GetTempPath(),
+                                        string tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                                             string.Format("{0:X16}.ttf", fontEbxTTF.RootObject.FontResource));
 
                                         if (!File.Exists(tempFile))
@@ -761,45 +1064,10 @@ namespace UIBlueprintEditor.Editor
 
                     else if (componentName == "FrostySdk.Ebx.UIElementLetterBoxEntityData")
                     {
-                        if (uiComponent.Internal.Visible == true || ShowAllUI)
-                        {
-                            var canvas = new Canvas
-                            {
-                                Width = width,
-                                Height = height,
-                                Tag = uiComponent.Internal.__InstanceGuid,
-                            };
-
-                            var rect = new System.Windows.Shapes.Rectangle
-                            {
-                                Width = width,
-                                Height = height,
-                            };
-
-                            var colorR = (byte)Math.Round(uiComponent.Internal.Color.x * 255);
-                            var colorG = (byte)Math.Round(uiComponent.Internal.Color.y * 255);
-                            var colorB = (byte)Math.Round(uiComponent.Internal.Color.z * 255);
-
-                            rect.Fill = new SolidColorBrush(Color.FromRgb(colorR, colorG, colorB));
-                            rect.Opacity = opacity;
-
-                            RotateElement(uiComponent, canvas);
-
-                            Canvas.SetLeft(canvas, finalX);
-                            Canvas.SetTop(canvas, finalY);
-
-                            if (isWidget)
-                            {
-                                widgetCanvas.Children.Add(canvas);
-                                canvas.Children.Add(rect);
-                            }
-                            else
-                            {
-                                _uiCanvas.Children.Add(canvas);
-                                canvas.Children.Add(rect);
-                                ControlUI(canvas);
-                            }
-                        }
+                        // real letterbox bars only cover thin strips along specific edges (DrawArea),
+                        // scaled by PortionToDraw — we don't know that shader's exact bar-thickness formula,
+                        // and this element is often sized to the full screen, so treating it like a Fill
+                        // (a solid rect at its own Size) blacks out everything behind it. Skip for now.
                     }
                     // ------------------------------------------------------------------
                     // Fill/colour rect
@@ -859,6 +1127,12 @@ namespace UIBlueprintEditor.Editor
                     else if (componentName == "FrostySdk.Ebx.UIElementButtonEntityData")
                     {
                         // no visual output needed
+                    }
+                    else if (componentName == "FrostySdk.Ebx.MenuPanelLayoutElementData")
+                    {
+                        // pure layout slot — no texture, style, or content of its own.
+                        // real content (buttons etc.) is placed here by a runtime layout system,
+                        // not by anything present in this blueprint. nothing to draw.
                     }
                     // ------------------------------------------------------------------
                     // Widget reference — recurse into child blueprint
@@ -933,29 +1207,373 @@ namespace UIBlueprintEditor.Editor
                                 ControlUI(containerCanvas);
                             }
 
-                            foreach (var childRef in uiComponent.Internal.Elements)
+                            foreach (var childComponent in uiComponent.Internal.Elements)
                             {
-                                dynamic child = childRef.Internal;
+                                var childComponentName = childComponent.Internal.ToString();
 
-                                if (child == null) continue;
-
-                                double childOffsetX = (double)child.Offset.X;
-                                double childOffsetY = (double)child.Offset.Y;
-                                double childAnchorX = (double)child.Anchor.X;
-                                double childAnchorY = (double)child.Anchor.Y;
-                                double childWidth = (double)child.Size.x;
-                                double childHeight = (double)child.Size.y;
-                                double childX = (double)child.Offset.X;
-                                double childY = (double)child.Offset.Y;
+                                double childOffsetX = (double)childComponent.Internal.Offset.X;
+                                double childOffsetY = (double)childComponent.Internal.Offset.Y;
+                                double childAnchorX = (double)childComponent.Internal.Anchor.X;
+                                double childAnchorY = (double)childComponent.Internal.Anchor.Y;
+                                double childWidth = (double)childComponent.Internal.Size.x;
+                                double childHeight = (double)childComponent.Internal.Size.y;
+                                double childX = childOffsetX;
+                                double childY = childOffsetY;
 
                                 double childFinalX = childAnchorX * (width - childWidth) + childX;
                                 double childFinalY = childAnchorY * (height - childHeight) + childY;
 
                                 double childOpacity = 1;
-                                if (child.Alpha != null)
-                                    childOpacity = ShowAllUI ? 1 : child.Alpha;
+                                try { childOpacity = ShowAllUI ? 1 : (double)childComponent.Internal.Alpha; } catch { }
 
-                                var childName = child.ToString();
+                                bool childVisible = true;
+                                try { childVisible = (bool)childComponent.Internal.Visible; } catch { }
+
+                                if (!childVisible && !ShowAllUI)
+                                    continue;
+
+                                // ------------------------------------------------------------
+                                // Fill — reads Color directly, same as the top-level Fill branch
+                                // ------------------------------------------------------------
+                                if (childComponentName == "FrostySdk.Ebx.UIElementFillEntityData")
+                                {
+                                    try
+                                    {
+                                        var childRect = new System.Windows.Shapes.Rectangle
+                                        {
+                                            Width = childWidth,
+                                            Height = childHeight,
+                                        };
+
+                                        var childColorR = (byte)Math.Round((double)childComponent.Internal.Color.x * 255);
+                                        var childColorG = (byte)Math.Round((double)childComponent.Internal.Color.y * 255);
+                                        var childColorB = (byte)Math.Round((double)childComponent.Internal.Color.z * 255);
+
+                                        childRect.Fill = new SolidColorBrush(Color.FromRgb(childColorR, childColorG, childColorB));
+                                        childRect.Opacity = childOpacity;
+
+                                        Canvas.SetLeft(childRect, childFinalX);
+                                        Canvas.SetTop(childRect, childFinalY);
+                                        containerCanvas.Children.Add(childRect);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        App.Logger.LogError($"Error rendering fill '{childComponent.Internal.InstanceName}' inside container '{uiComponent.Internal.InstanceName}': {ex.Message}");
+                                    }
+                                }
+                                // ------------------------------------------------------------
+                                // Static texture — same atlas-crop approach as the top-level branch
+                                // ------------------------------------------------------------
+                                else if (childComponentName == "FrostySdk.Ebx.UIElementStaticTextureEntityData" && createImages)
+                                {
+                                    try
+                                    {
+                                        string staticTextureId = childComponent.Internal.Texture.Id.ToString();
+                                        double minX, minY, maxX, maxY;
+                                        string textureKey;
+
+                                        if (staticTextureId == "0")
+                                        {
+                                            // no atlas entry — load directly via TextureRef, and use this element's
+                                            // own UvRect for cropping instead of atlas-provided min/max
+                                            string textureRefHex = childComponent.Internal.Texture.TextureRef.ToString();
+                                            textureKey = "direct_" + textureRefHex;
+                                            CreateTextures.GetTextureByResHash(textureRefHex, textureKey);
+
+                                            var uvRectFull = childComponent.Internal.UvRect;
+                                            minX = (double)uvRectFull.x * childWidth;
+                                            minY = (double)uvRectFull.y * childHeight;
+                                            maxX = (double)uvRectFull.z * childWidth;
+                                            maxY = (double)uvRectFull.w * childHeight;
+                                        }
+                                        else
+                                        {
+                                            textureKey = staticTextureId;
+                                            CreateTextures.GetTextures(rootObject, textureKey);
+
+                                            minX = mappingMinValue[textureKey].x * childWidth;
+                                            minY = mappingMinValue[textureKey].y * childHeight;
+                                            maxX = mappingMaxValue[textureKey].x * childWidth;
+                                            maxY = mappingMaxValue[textureKey].y * childHeight;
+                                        }
+
+                                        double actualChildWidth = childWidth;
+                                        double actualChildHeight = childHeight;
+
+                                        var texture = mappingTexture[textureKey];
+
+                                        var childImage = new Image
+                                        {
+                                            Width = childWidth,
+                                            Height = childHeight,
+                                            Stretch = Stretch.Fill,
+                                            Source = texture,
+                                            Opacity = childOpacity,
+                                        };
+
+                                        childImage.Clip = new RectangleGeometry(new Rect(new Point(minX, minY), new Point(maxX, maxY)));
+                                        RenderOptions.SetBitmapScalingMode(childImage, BitmapScalingMode.Fant);
+
+                                        double croppedWidth = maxX - minX;
+                                        double croppedHeight = maxY - minY;
+
+                                        double scaleX = actualChildWidth / croppedWidth;
+                                        double scaleY = actualChildHeight / croppedHeight;
+
+                                        var transformGroupImage = new TransformGroup();
+                                        transformGroupImage.Children.Add(new TranslateTransform(-minX, -minY));
+                                        transformGroupImage.Children.Add(new ScaleTransform(scaleX, scaleY));
+                                        childImage.RenderTransform = transformGroupImage;
+
+                                        Canvas.SetLeft(childImage, childFinalX);
+                                        Canvas.SetTop(childImage, childFinalY);
+                                        containerCanvas.Children.Add(childImage);
+                                    }
+                                    catch (KeyNotFoundException)
+                                    {
+                                        App.Logger.LogError($"The texture '{childComponent.Internal.Texture.Id}' wasn't found in '{childComponent.Internal.InstanceName}'");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        App.Logger.LogError($"Error rendering static texture '{childComponent.Internal.InstanceName}' inside container '{uiComponent.Internal.InstanceName}': {ex.Message}");
+                                    }
+                                }
+                                // ------------------------------------------------------------
+                                // Text field — same try/catch-with-fallback style as the top-level branch
+                                // ------------------------------------------------------------
+                                else if (childComponentName == "FrostySdk.Ebx.UIElementTextFieldEntityData" && createText)
+                                {
+                                    try
+                                    {
+                                        var childTb = new TextBlock
+                                        {
+                                            Width = childWidth,
+                                            Height = childHeight,
+                                            Opacity = childOpacity,
+                                        };
+
+                                        string childOutcome = childComponent.Internal.InstanceName;
+                                        try
+                                        {
+                                            string childSid = childComponent.Internal.StringId;
+                                            string childFieldText = childComponent.Internal.LocalizedString;
+                                            childOutcome = childSid == "" ? childFieldText : childSid;
+                                        }
+                                        catch { }
+
+                                        childTb.Text = (childOutcome != "" && childOutcome != null)
+                                            ? (childOutcome.StartsWith("ID_") ? LocalizedStringDatabase.Current.GetString(childOutcome) : childOutcome)
+                                            : childComponent.Internal.InstanceName;
+
+                                        try
+                                        {
+                                            switch (childComponent.Internal.HorizontalAlignment.ToString())
+                                            {
+                                                case "UIElementAlignment_Left": childTb.TextAlignment = TextAlignment.Left; break;
+                                                case "UIElementAlignment_Center": childTb.TextAlignment = TextAlignment.Center; break;
+                                                case "UIElementAlignment_Right": childTb.TextAlignment = TextAlignment.Right; break;
+                                                default: childTb.TextAlignment = TextAlignment.Left; break;
+                                            }
+
+                                            switch (childComponent.Internal.VerticalAlignment.ToString())
+                                            {
+                                                case "UIElementAlignment_Top": childTb.VerticalAlignment = VerticalAlignment.Top; break;
+                                                case "UIElementAlignment_Center": childTb.VerticalAlignment = VerticalAlignment.Center; break;
+                                                case "UIElementAlignment_Bottom": childTb.VerticalAlignment = VerticalAlignment.Bottom; break;
+                                                default: childTb.VerticalAlignment = VerticalAlignment.Center; break;
+                                            }
+                                        }
+                                        catch { }
+
+                                        childTb.Foreground = new SolidColorBrush(Color.FromRgb(
+                                            (byte)Math.Round((double)childComponent.Internal.Color.x * 255),
+                                            (byte)Math.Round((double)childComponent.Internal.Color.y * 255),
+                                            (byte)Math.Round((double)childComponent.Internal.Color.z * 255)));
+
+                                        Canvas.SetLeft(childTb, childFinalX);
+                                        Canvas.SetTop(childTb, childFinalY);
+                                        containerCanvas.Children.Add(childTb);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        App.Logger.LogError($"Error rendering text field '{childComponent.Internal.InstanceName}' inside container '{uiComponent.Internal.InstanceName}': {ex.Message}");
+                                    }
+                                }
+                                else if (childComponentName == "FrostySdk.Ebx.UIElementCircularMeterEntityData" && createImages)
+                                {
+                                    try
+                                    {
+                                        var childTexturePointer = (PointerRef)childComponent.Internal.Texture;
+                                        string childCacheKey = childTexturePointer.External.FileGuid.ToString();
+                                        CreateTextures.GetDirectTexture(childTexturePointer, childCacheKey);
+
+                                        var childTexture = mappingTexture[childCacheKey];
+
+                                        var childImage = new Image
+                                        {
+                                            Width = childWidth,
+                                            Height = childHeight,
+                                            Stretch = Stretch.Fill,
+                                            Source = childTexture,
+                                            Opacity = childOpacity,
+                                        };
+
+                                        double childCenterX = childWidth * (double)childComponent.Internal.RelativeCenterOfCircle.x;
+                                        double childCenterY = childHeight * (double)childComponent.Internal.RelativeCenterOfCircle.y;
+                                        double childRadius = Math.Sqrt(childWidth * childWidth + childHeight * childHeight);
+
+                                        double childStartAngle = (double)childComponent.Internal.StartAngleRadians;
+                                        double childMaxRotation = (double)childComponent.Internal.MaxRotationRadians;
+                                        double childMeterValue = Math.Max(0, Math.Min(1, (double)childComponent.Internal.MeterValue));
+                                        double childSweep = childMaxRotation * childMeterValue;
+
+                                        if (childSweep > 0.0001)
+                                        {
+                                            double childEndAngle = childStartAngle + childSweep;
+
+                                            var childCenter = new Point(childCenterX, childCenterY);
+                                            var childStartPoint = new Point(childCenterX + childRadius * Math.Cos(childStartAngle), childCenterY + childRadius * Math.Sin(childStartAngle));
+                                            var childEndPoint = new Point(childCenterX + childRadius * Math.Cos(childEndAngle), childCenterY + childRadius * Math.Sin(childEndAngle));
+
+                                            bool childIsLargeArc = childSweep > Math.PI;
+
+                                            var childFigure = new PathFigure { StartPoint = childCenter, IsClosed = true };
+                                            childFigure.Segments.Add(new LineSegment(childStartPoint, true));
+                                            childFigure.Segments.Add(new ArcSegment(childEndPoint, new Size(childRadius, childRadius), 0, childIsLargeArc, SweepDirection.Clockwise, true));
+
+                                            var childWedgeGeometry = new PathGeometry();
+                                            childWedgeGeometry.Figures.Add(childFigure);
+
+                                            childImage.Clip = childWedgeGeometry;
+                                        }
+
+                                        Canvas.SetLeft(childImage, childFinalX);
+                                        Canvas.SetTop(childImage, childFinalY);
+                                        containerCanvas.Children.Add(childImage);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        App.Logger.LogError($"Error rendering circular meter '{childComponent.Internal.InstanceName}' inside container '{uiComponent.Internal.InstanceName}': {ex.Message}");
+                                    }
+                                }
+                                // ------------------------------------------------------------
+                                // Widget reference — recurse into the referenced blueprint, same as the top-level branch
+                                // ------------------------------------------------------------
+                                else if (childComponentName == "FrostySdk.Ebx.UIElementWidgetReferenceEntityData" && createWidgets)
+                                {
+                                    try
+                                    {
+                                        var childCanvasWidget = new Canvas { Tag = childComponent.Internal.__InstanceGuid };
+
+                                        var childWidgetGuid = ((PointerRef)childComponent.Internal.Blueprint).External.FileGuid;
+                                        var childWidgetEbx = App.AssetManager.GetEbxEntry(childWidgetGuid);
+
+                                        EbxAsset childWidgetAsset = App.AssetManager.GetEbx(childWidgetEbx);
+                                        dynamic childRootObjectWidget = childWidgetAsset.RootObject;
+
+                                        var childWidgetSize = childRootObjectWidget.Object.Internal.Size;
+
+                                        if (!childComponent.Internal.UseElementSize)
+                                        {
+                                            childCanvasWidget.Width = childWidgetSize.X;
+                                            childCanvasWidget.Height = childWidgetSize.Y;
+                                        }
+                                        else
+                                        {
+                                            childCanvasWidget.Width = childWidth;
+                                            childCanvasWidget.Height = childHeight;
+                                        }
+
+                                        double childWidgetFinalX = childAnchorX * (width - (double)childWidgetSize.X) + childX;
+                                        double childWidgetFinalY = childAnchorY * (height - (double)childWidgetSize.Y) + childY;
+
+                                        childCanvasWidget.Opacity = childOpacity;
+
+                                        Canvas.SetLeft(childCanvasWidget, childWidgetFinalX);
+                                        Canvas.SetTop(childCanvasWidget, childWidgetFinalY);
+
+                                        containerCanvas.Children.Add(childCanvasWidget);
+
+                                        LoadUI(childWidgetEbx, true, childCanvasWidget);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        App.Logger.LogError($"Error rendering widget reference '{childComponent.Internal.InstanceName}' inside container '{uiComponent.Internal.InstanceName}': {ex.Message}");
+                                    }
+                                }
+                                // any other child type (nested UIContainerEntityData, UIElementSlicedTextureEntityData, etc.)
+                                // isn't handled inside a container yet — falls through silently for now
+                            }
+                        }
+                    }
+                    else if (componentName == "FrostySdk.Ebx.UIElementMiniMapEntityData")
+                    {
+                        if (uiComponent.Internal.Visible == true || ShowAllUI)
+                        {
+                            // this is a runtime-streamed tiled map (position/rotation driven by gameplay),
+                            // not a static texture — there's no single image to crop and show here.
+                            // this placeholder reflects the known static facts (shape, tint, alpha) only.
+                            if (debugging)
+                                App.Logger.Log($"MiniMap '{uiComponent.Internal.InstanceName}' is runtime-streamed — showing a placeholder, not the live map");
+
+                            var canvas = new Canvas
+                            {
+                                Width = width,
+                                Height = height,
+                                Tag = uiComponent.Internal.__InstanceGuid,
+                            };
+
+                            bool isCircular = false;
+                            try { isCircular = (bool)uiComponent.Internal.Circular; } catch { }
+
+                            double mapAlpha = opacity;
+                            try { mapAlpha = (double)uiComponent.Internal.MapAlpha * opacity; } catch { }
+
+                            var mapColorVec = uiComponent.Internal.MapColor;
+                            var tint = Color.FromRgb(
+                                (byte)Math.Round((double)mapColorVec.x * 255),
+                                (byte)Math.Round((double)mapColorVec.y * 255),
+                                (byte)Math.Round((double)mapColorVec.z * 255));
+
+                            Shape placeholder;
+                            if (isCircular)
+                            {
+                                placeholder = new Ellipse { Width = width, Height = height };
+                            }
+                            else
+                            {
+                                placeholder = new System.Windows.Shapes.Rectangle { Width = width, Height = height };
+                            }
+
+                            placeholder.Fill = new SolidColorBrush(tint);
+                            placeholder.Opacity = mapAlpha;
+                            placeholder.Stroke = Brushes.White;
+                            placeholder.StrokeThickness = 1;
+
+                            var label = new TextBlock
+                            {
+                                Text = "Minimap (runtime)",
+                                FontSize = 12,
+                                Opacity = 0.5,
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                VerticalAlignment = VerticalAlignment.Center,
+                            };
+
+                            RotateElement(uiComponent, canvas);
+                            Canvas.SetLeft(canvas, finalX);
+                            Canvas.SetTop(canvas, finalY);
+
+                            canvas.Children.Add(placeholder);
+                            canvas.Children.Add(label);
+
+                            if (isWidget)
+                            {
+                                widgetCanvas.Children.Add(canvas);
+                            }
+                            else
+                            {
+                                _uiCanvas.Children.Add(canvas);
+                                ControlUI(canvas);
                             }
                         }
                     }
@@ -1012,6 +1630,8 @@ namespace UIBlueprintEditor.Editor
 
             #endregion
         }
+
+        // paste this as a new private method in UIEditor, right after LoadUI
 
         private void RotateElement(dynamic uiComponent, Canvas canvas)
         {
