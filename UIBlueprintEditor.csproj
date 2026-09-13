@@ -9,6 +9,7 @@
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 		<UseWPF>true</UseWPF>
 		<OutputType>Library</OutputType>
+		<BaseOutputPath>C:\Users\Dakota\Desktop</BaseOutputPath>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Developer|x64'">
@@ -32,20 +33,25 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <PackageReference Include="SharpDX.Direct3D11" Version="4.2.0" />
+	  <PackageReference Include="SharpDX.DXGI" Version="4.2.0" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Reference Include="FrostyControls">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\FrostyControls.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\FrostyControls.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostyCore">
-			<HintPath>D:\Documents\gw2 stuff\FrostyEditor\FrostyCore.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\FrostyCore.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostyHash">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\FrostyHash.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\FrostyHash.dll</HintPath>
 		</Reference>
 		<Reference Include="FrostySdk">
-			<HintPath>D:\Documents\gw2 stuff\FrostyEditor\FrostySdk.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\FrostySdk.dll</HintPath>
 		</Reference>
 		<Reference Include="LocalizedStringPlugin">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\Plugins\LocalizedStringPlugin.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\Plugins\LocalizedStringPlugin.dll</HintPath>
 		</Reference>
 		<Reference Include="Microsoft.CSharp" />
 		<Reference Include="SharpDX.Direct3D11">
@@ -55,7 +61,7 @@
 		  <HintPath>..\..\gw2 stuff\FrostyEditor\ThirdParty\SharpDX.DXGI.dll</HintPath>
 		</Reference>
 		<Reference Include="TexturePlugin">
-		  <HintPath>..\..\gw2 stuff\FrostyEditor\Plugins\TexturePlugin.dll</HintPath>
+		  <HintPath>D:\Tools\Modding\NFS\FrostyEditor 1.0.6.3\Plugins\TexturePlugin.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
